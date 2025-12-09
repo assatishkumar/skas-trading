@@ -1,0 +1,106 @@
+Technical Requirements Document: Shop Strategy
+1. Project Overview
+Objective: Develop a Python-based backtesting script for a swing trading strategy ("Nifty Shop 2.0"). Core Logic: The strategy buys high-quality stocks on deep pullbacks (value buying) and sells them on recovery using a LIFO (Last In, First Out) inventory method. Key Constraint: The logic must be "Universe Agnostic" (able to accept Nifty 50, Nifty 500, or a list of ETFs as input).
+
+2. Configuration Parameters
+The code must use variables/constants for the following to allow for easy optimization later:
+
+INITIAL_CAPITAL: Float (e.g., 500,000).
+
+CAPITAL_PARTS: Integer (Default: 40). Used to calculate trade size.
+
+UNIVERSE_LIST: List of strings (Tickers).
+
+NEW_BUY_DROP_THRESHOLD: Float (Default: 0.10 or 10%). Drop from 52-Week High.
+
+AVG_BUY_DROP_THRESHOLD: Float (Default: 0.05 or 5%). Drop from last purchase price.
+
+PROFIT_TARGET: Float (Default: 0.03 or 3%).
+
+MAX_NEW_BUYS_PER_DAY: Integer (Default: 3).
+
+MAX_AVG_BUYS_PER_DAY: Integer (Default: 1).
+
+3. Data Structures
+The system must track holdings using a LIFO (Last In, First Out) stack.
+
+Do not use a weighted average price.
+
+Required Structure: A dictionary or class where each stock key maps to a list of buy packets.
+
+Example: Portfolio = { 'RELIANCE': [ {price: 2400, date: '2023-01-01'}, {price: 2200, date: '2023-02-01'} ] }
+
+When selling, we evaluate and remove the last item in the list (index -1).
+
+4. Execution Logic (Daily Loop)
+The script should iterate through historical data day-by-day. On each day, execute the logic in this strict order:
+
+Step A: Market Scan & Indicator Calculation
+For every stock in the universe for the current date:
+
+Calculate 52_Week_High.
+
+Determine Is_Green_Candle: Close > Previous_Close.
+
+Determine Is_Red_Candle: Close < Previous_Close.
+
+Step B: Sell Logic (Exits)
+Check this first to free up cash. Iterate through all stocks currently in the Portfolio.
+
+Get the last purchased packet (LIFO) for the stock.
+
+Calculate Unrealized_PnL_Pct = (Current_Close - Packet_Buy_Price) / Packet_Buy_Price.
+
+Sell Condition:
+
+Unrealized_PnL_Pct >= PROFIT_TARGET (3%)
+
+AND Is_Red_Candle is True. (Trailing stop logic).
+
+Action: If met, remove the packet from the list and credit Cash.
+
+Step C: Averaging Logic (Re-Entry)
+Priority over new buys. Iterate through all stocks currently in the Portfolio.
+
+Check Global Constraint: Has an averaging trade already happened today? If yes, Stop Averaging.
+
+Get the last purchased packet price.
+
+Buy Condition:
+
+Current_Close < Last_Packet_Price * (1 - AVG_BUY_DROP_THRESHOLD) (Down 5%)
+
+AND Is_Green_Candle is True.
+
+Action: Buy 1 allocation unit. Deduct Cash. Add packet to Portfolio list. Mark Averaging_Done_Today = True.
+
+Step D: New Buy Logic (Fresh Entry)
+Only if Averaging_Done_Today is False.
+
+Identify potential candidates from the UNIVERSE_LIST that are not currently held in the Portfolio.
+
+Filter Candidates:
+
+Current_Close < 52_Week_High * (1 - NEW_BUY_DROP_THRESHOLD) (Down 10%)
+
+AND Is_Green_Candle is True.
+
+Ranking: If candidates count > MAX_NEW_BUYS_PER_DAY (3), sort them by percentage drop from 52-week high (deepest discount first).
+
+Action: Buy top 3 candidates (1 allocation unit each). Deduct Cash. Add packet to Portfolio list.
+
+5. Input & Output Requirements
+Input: Use skas-data utils for stock / ETF price
+
+Output:
+
+Trade Log: CSV log with columns [Date, Ticker, Action (Buy/Sell/Avg), Price, PnL, PnL_Pct].
+
+Performance Summary: Total Return, Win Rate, Max Drawdown.
+
+6. Constraints & Edge Cases
+Cash Check: Before any buy (New or Average), check if Cash > (Initial_Capital / CAPITAL_PARTS). If not, skip the trade.
+
+Volume Filter (Optional but Recommended): If the universe is Nifty 500, ignore stocks where Volume * Close < 50,000,000 (Liquidity check).
+
+Trailing Note: The "Sell on Red Candle" implies that if a stock is up 10% and prints a Green Candle, we Hold. We only sell when it finally prints a Red Candle after crossing the 3% profit threshold.
